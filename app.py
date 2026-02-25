@@ -391,6 +391,17 @@ with form_col:
     saved_exch       = pf.get("_exchange_full", st.session_state.selected_exchange)
     default_idx      = exchange_options.index(saved_exch) if saved_exch in exchange_options else 0
 
+    # Determine the correct short name to display:
+    # Priority: 1) user manually typed something  2) prefill from edit  3) auto from map
+    def _init_short_name():
+        """Called once when exchange changes or prefill changes."""
+        if pf.get("_exchange_full") == st.session_state.get("_cur_exchange_full") and pf.get("_exchange_short"):
+            return pf["_exchange_short"]
+        return EXCHANGES.get(st.session_state.get("_cur_exchange_full", saved_exch), "")
+
+    # Detect if the selectbox value changed — if so, reset the short name
+    prev_exchange = st.session_state.get("_cur_exchange_full")
+
     col3, col4 = st.columns(2)
     with col3:
         exchange_full = st.selectbox(
@@ -399,24 +410,32 @@ with form_col:
             index=default_idx,
             key="exchange_selectbox",
         )
+
+    # When exchange changes, update the displayed short name automatically
+    if prev_exchange != exchange_full:
+        st.session_state["_cur_exchange_full"] = exchange_full
+        # Use prefill short if we're editing and this exchange matches
+        if pf.get("_exchange_full") == exchange_full and pf.get("_exchange_short"):
+            st.session_state["_short_name_display"] = pf["_exchange_short"]
+        else:
+            st.session_state["_short_name_display"] = EXCHANGES.get(exchange_full, "")
+
+    # First-time init
+    if "_short_name_display" not in st.session_state:
+        if pf.get("_exchange_full") == exchange_full and pf.get("_exchange_short"):
+            st.session_state["_short_name_display"] = pf["_exchange_short"]
+        else:
+            st.session_state["_short_name_display"] = EXCHANGES.get(exchange_full, "")
+
     with col4:
-        # Auto-fill from EXCHANGES map when dropdown changes; user can override
-        auto_short = EXCHANGES.get(exchange_full, "")
-        if st.session_state.get("_last_exchange") != exchange_full:
-            st.session_state["_exchange_short_val"] = auto_short
-            st.session_state["_last_exchange"] = exchange_full
-        # Restore saved short name when editing a history entry
-        if (pf.get("_exchange_full") == exchange_full
-                and pf.get("_exchange_short")
-                and st.session_state.get("_last_exchange_prefill") != exchange_full):
-            st.session_state["_exchange_short_val"] = pf["_exchange_short"]
-            st.session_state["_last_exchange_prefill"] = exchange_full
+        # No key= here so value= always wins; we capture the result manually
         exchange_short_input = st.text_input(
             "ชื่อย่อตลาด *",
-            value=st.session_state.get("_exchange_short_val", auto_short),
-            key="_exchange_short_val",
+            value=st.session_state["_short_name_display"],
             help="กำหนดอัตโนมัติจากตลาดที่เลือก แต่สามารถแก้ไขได้",
         )
+        # Keep session state in sync with whatever user typed
+        st.session_state["_short_name_display"] = exchange_short_input
 
     with st.form("dr_form", clear_on_submit=False):
 
@@ -462,9 +481,9 @@ with form_col:
         submitted = st.form_submit_button(btn_label, use_container_width=True, type="primary")
 
     if submitted:
-        # Use the exchange selected outside the form; short name may have been overridden by user
-        current_exchange_full  = st.session_state.exchange_selectbox
-        current_exchange_short = st.session_state.get("_exchange_short_val", EXCHANGES.get(current_exchange_full, "")).strip()
+        # exchange_full and exchange_short_input are set above, outside the form
+        current_exchange_full  = exchange_full
+        current_exchange_short = exchange_short_input.strip()
 
         errors = []
         if not ticker.strip():               errors.append("กรุณากรอก Ticker")
