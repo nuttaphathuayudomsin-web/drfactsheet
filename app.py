@@ -353,22 +353,17 @@ with form_col:
         saved_exch       = pf.get("_exchange_full", exchange_options[0])
         default_idx      = exchange_options.index(saved_exch) if saved_exch in exchange_options else 0
 
-        col3, col4 = st.columns(2)
-        with col3:
-            exchange_full = st.selectbox("ตลาดจดทะเบียน *",
-                                         options=exchange_options,
-                                         index=default_idx,
-                                         key="exchange_full_select")
-        with col4:
-            # Always derive short from current selection; only keep custom prefill
-            # if the saved exchange exactly matches the currently selected one
-            if pf.get("_exchange_full") == exchange_full:
-                short_value = pf.get("_exchange_short", EXCHANGES.get(exchange_full, ""))
-            else:
-                short_value = EXCHANGES.get(exchange_full, "")
-            exchange_short = st.text_input("ชื่อย่อตลาด *",
-                                           value=short_value,
-                                           placeholder="เช่น HKEX")
+        exchange_full = st.selectbox("ตลาดจดทะเบียน *",
+                                     options=exchange_options,
+                                     index=default_idx,
+                                     key="exchange_full_select")
+        # Short name is always derived directly from the dropdown — no separate input
+        exchange_short = EXCHANGES.get(exchange_full, "")
+        st.markdown(
+            f'<div style="font-size:12px;color:#5A637A;margin-top:-8px;margin-bottom:12px;">' +
+            f'ชื่อย่อตลาด: <span style="color:#00D4AA;font-weight:600;">{exchange_short}</span></div>',
+            unsafe_allow_html=True
+        )
 
         col5, col6 = st.columns(2)
         with col5:
@@ -402,7 +397,7 @@ with form_col:
         if not ticker.strip():         errors.append("กรุณากรอก Ticker")
         if not company_name.strip():   errors.append("กรุณากรอกชื่อบริษัท")
         if not stock_code.strip():     errors.append("กรุณากรอกรหัสหลักทรัพย์")
-        if not exchange_short.strip(): errors.append("กรุณากรอกชื่อย่อตลาด")
+
 
         if errors:
             for e in errors:
