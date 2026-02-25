@@ -353,17 +353,31 @@ with form_col:
         saved_exch       = pf.get("_exchange_full", exchange_options[0])
         default_idx      = exchange_options.index(saved_exch) if saved_exch in exchange_options else 0
 
-        exchange_full = st.selectbox("ตลาดจดทะเบียน *",
-                                     options=exchange_options,
-                                     index=default_idx,
-                                     key="exchange_full_select")
-        # Short name is always derived directly from the dropdown — no separate input
-        exchange_short = EXCHANGES.get(exchange_full, "")
-        st.markdown(
-            f'<div style="font-size:12px;color:#5A637A;margin-top:-8px;margin-bottom:12px;">' +
-            f'ชื่อย่อตลาด: <span style="color:#00D4AA;font-weight:600;">{exchange_short}</span></div>',
-            unsafe_allow_html=True
-        )
+        def on_exchange_change():
+            # When dropdown changes, reset short name to the auto value
+            selected = st.session_state["exchange_full_select"]
+            st.session_state["exchange_short_override"] = EXCHANGES.get(selected, "")
+
+        # Init short name session state on first load or when prefilling
+        if "exchange_short_override" not in st.session_state:
+            st.session_state["exchange_short_override"] = EXCHANGES.get(exchange_options[default_idx], "")
+        # If prefilling from history, sync to saved value
+        if pf.get("_exchange_full"):
+            if st.session_state.get("_last_prefill_ticker") != pf.get("_ticker"):
+                st.session_state["exchange_short_override"] = pf.get("_exchange_short", EXCHANGES.get(saved_exch, ""))
+                st.session_state["_last_prefill_ticker"] = pf.get("_ticker")
+
+        col3, col4 = st.columns(2)
+        with col3:
+            exchange_full = st.selectbox("ตลาดจดทะเบียน *",
+                                         options=exchange_options,
+                                         index=default_idx,
+                                         key="exchange_full_select",
+                                         on_change=on_exchange_change)
+        with col4:
+            exchange_short = st.text_input("ชื่อย่อตลาด *",
+                                           key="exchange_short_override",
+                                           placeholder="เช่น HKEX")
 
         col5, col6 = st.columns(2)
         with col5:
