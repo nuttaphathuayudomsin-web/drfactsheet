@@ -332,6 +332,36 @@ with form_col:
 
     st.markdown('<div class="section-label">✏️ กรอกข้อมูล DR</div>', unsafe_allow_html=True)
 
+    # ── EXCHANGE DROPDOWN — outside form so on_change works ──
+    exchange_options = list(EXCHANGES.keys())
+    saved_exch       = pf.get("_exchange_full", exchange_options[0])
+    default_idx      = exchange_options.index(saved_exch) if saved_exch in exchange_options else 0
+
+    def on_exchange_change():
+        selected = st.session_state["exchange_full_select"]
+        st.session_state["exchange_short_override"] = EXCHANGES.get(selected, "")
+
+    # Init session state for short name
+    if "exchange_short_override" not in st.session_state:
+        st.session_state["exchange_short_override"] = EXCHANGES.get(exchange_options[default_idx], "")
+    # Sync when prefilling from history
+    if pf.get("_exchange_full"):
+        if st.session_state.get("_last_prefill_ticker") != pf.get("_ticker"):
+            st.session_state["exchange_short_override"] = pf.get("_exchange_short", EXCHANGES.get(saved_exch, ""))
+            st.session_state["_last_prefill_ticker"] = pf.get("_ticker")
+
+    col3, col4 = st.columns(2)
+    with col3:
+        exchange_full = st.selectbox("ตลาดจดทะเบียน *",
+                                     options=exchange_options,
+                                     index=default_idx,
+                                     key="exchange_full_select",
+                                     on_change=on_exchange_change)
+    with col4:
+        exchange_short = st.text_input("ชื่อย่อตลาด *",
+                                       key="exchange_short_override",
+                                       placeholder="เช่น HKEX")
+
     with st.form("dr_form", clear_on_submit=False):
 
         col1, col2 = st.columns(2)
@@ -347,37 +377,6 @@ with form_col:
         company_name = st.text_input("ชื่อบริษัทอ้างอิง (ภาษาอังกฤษ) *",
                                      value=pf.get("_company_name", ""),
                                      placeholder="เช่น Sunny Optical Technology (Group) Co., Ltd.")
-
-        # ── EXCHANGE DROPDOWN ──
-        exchange_options = list(EXCHANGES.keys())
-        saved_exch       = pf.get("_exchange_full", exchange_options[0])
-        default_idx      = exchange_options.index(saved_exch) if saved_exch in exchange_options else 0
-
-        def on_exchange_change():
-            # When dropdown changes, reset short name to the auto value
-            selected = st.session_state["exchange_full_select"]
-            st.session_state["exchange_short_override"] = EXCHANGES.get(selected, "")
-
-        # Init short name session state on first load or when prefilling
-        if "exchange_short_override" not in st.session_state:
-            st.session_state["exchange_short_override"] = EXCHANGES.get(exchange_options[default_idx], "")
-        # If prefilling from history, sync to saved value
-        if pf.get("_exchange_full"):
-            if st.session_state.get("_last_prefill_ticker") != pf.get("_ticker"):
-                st.session_state["exchange_short_override"] = pf.get("_exchange_short", EXCHANGES.get(saved_exch, ""))
-                st.session_state["_last_prefill_ticker"] = pf.get("_ticker")
-
-        col3, col4 = st.columns(2)
-        with col3:
-            exchange_full = st.selectbox("ตลาดจดทะเบียน *",
-                                         options=exchange_options,
-                                         index=default_idx,
-                                         key="exchange_full_select",
-                                         on_change=on_exchange_change)
-        with col4:
-            exchange_short = st.text_input("ชื่อย่อตลาด *",
-                                           key="exchange_short_override",
-                                           placeholder="เช่น HKEX")
 
         col5, col6 = st.columns(2)
         with col5:
