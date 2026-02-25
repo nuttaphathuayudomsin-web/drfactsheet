@@ -357,13 +357,17 @@ with form_col:
         with col3:
             exchange_full = st.selectbox("ตลาดจดทะเบียน *",
                                          options=exchange_options,
-                                         index=default_idx)
+                                         index=default_idx,
+                                         key="exchange_full_select")
         with col4:
-            # Auto-fill short name from dropdown; allow manual override
-            auto_short     = EXCHANGES.get(exchange_full, "")
-            prefill_short  = pf.get("_exchange_short", auto_short) if pf else auto_short
+            # Always derive short from current selection; only keep custom prefill
+            # if the saved exchange exactly matches the currently selected one
+            if pf.get("_exchange_full") == exchange_full:
+                short_value = pf.get("_exchange_short", EXCHANGES.get(exchange_full, ""))
+            else:
+                short_value = EXCHANGES.get(exchange_full, "")
             exchange_short = st.text_input("ชื่อย่อตลาด *",
-                                           value=prefill_short,
+                                           value=short_value,
                                            placeholder="เช่น HKEX")
 
         col5, col6 = st.columns(2)
