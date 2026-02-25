@@ -1,5 +1,7 @@
 import streamlit as st
 import io
+import os
+import json
 from pptx import Presentation
 import qrcode
 from PIL import Image
@@ -56,20 +58,68 @@ FIXED = {
 }
 
 # ── EXCHANGE DROPDOWN OPTIONS ─────────────────────────────────
+# Format: "Full Exchange Name" : "SHORT"
 EXCHANGES = {
     "Hong Kong Stock Exchange"      : "HKEX",
-    "Nasdaq Stock Exchange"         : "NDX",
+    "Nasdaq Stock Exchange"         : "NASDAQ",
     "New York Stock Exchange"       : "NYSE",
     "Tokyo Stock Exchange"          : "TSE",
     "Shanghai Stock Exchange"       : "SSE",
-    "Shenzhen Stock Exchange"       : "SHZ",
-    "Euronext Paris"                : "ENX",
+    "Shenzhen Stock Exchange"       : "SZSE",
+    "Euronext Paris"                : "EPA",
     "London Stock Exchange"         : "LSE",
     "Singapore Exchange"            : "SGX",
     "Korea Stock Exchange"          : "KRX",
     "Taiwan Stock Exchange"         : "TWSE",
     "Australian Securities Exchange": "ASX",
 }
+
+# ── TEMPLATE FILE PATH (persisted on disk next to app.py) ─────
+TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "template.pptx")
+
+def load_template_from_disk():
+    """Load template bytes from disk if file exists."""
+    if os.path.exists(TEMPLATE_PATH):
+        with open(TEMPLATE_PATH, "rb") as f:
+            return f.read()
+    return None
+
+def save_template_to_disk(data: bytes):
+    """Save template bytes to disk."""
+    with open(TEMPLATE_PATH, "wb") as f:
+        f.write(data)
+
+# ── HISTORY FILE PATH (persisted on disk next to app.py) ──────
+HISTORY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "history.json")
+
+def load_history_from_disk():
+    """Load history list from disk. Returns [] if missing or corrupt."""
+    if not os.path.exists(HISTORY_PATH):
+        return []
+    try:
+        with open(HISTORY_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        # Rehydrate _trading_date strings back to date objects
+        for entry in data:
+            if isinstance(entry.get("_trading_date"), str):
+                try:
+                    entry["_trading_date"] = date.fromisoformat(entry["_trading_date"])
+                except ValueError:
+                    entry["_trading_date"] = date.today()
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+def save_history_to_disk(history: list):
+    """Save history list to disk as JSON."""
+    serialisable = []
+    for entry in history:
+        row = dict(entry)
+        if isinstance(row.get("_trading_date"), date):
+            row["_trading_date"] = row["_trading_date"].isoformat()
+        serialisable.append(row)
+    with open(HISTORY_PATH, "w", encoding="utf-8") as f:
+        json.dump(serialisable, f, ensure_ascii=False, indent=2)
 
 # ── THAI DATE FORMATTER ───────────────────────────────────────
 THAI_MONTHS = ["ม.ค.","ก.พ.","มี.ค.","เม.ย.","พ.ค.","มิ.ย.",
@@ -81,10 +131,13 @@ def to_thai_date(d: date) -> str:
 
 # ── SESSION STATE ─────────────────────────────────────────────
 if "form_data"       not in st.session_state: st.session_state.form_data       = None
-if "history"         not in st.session_state: st.session_state.history         = []
-if "template_bytes"  not in st.session_state: st.session_state.template_bytes  = None
+if "history"         not in st.session_state: st.session_state.history         = load_history_from_disk()
+if "template_bytes"  not in st.session_state:
+    # Try to load from disk on first run
+    st.session_state.template_bytes = load_template_from_disk()
 if "edit_index"      not in st.session_state: st.session_state.edit_index      = None
 if "prefill"         not in st.session_state: st.session_state.prefill         = {}
+if "selected_exchange" not in st.session_state: st.session_state.selected_exchange = list(EXCHANGES.keys())[0]
 
 # ── STYLES ────────────────────────────────────────────────────
 st.markdown("""
@@ -131,6 +184,14 @@ st.markdown("""
                        border-radius:8px !important; font-weight:500 !important; }
     div[data-testid="stForm"] { background:#141720; border:1px solid #252A3A;
                                  border-radius:12px; padding:20px; }
+    .template-status-ok {
+        background:#0D1A12; border:1px solid #1A3A25; border-radius:8px;
+        padding:8px 14px; font-size:12px; color:#00D4AA; margin-bottom:8px;
+    }
+    .template-status-missing {
+        background:#1A1212; border:1px solid #3A1A1A; border-radius:8px;
+        padding:8px 14px; font-size:12px; color:#FF6B6B; margin-bottom:8px;
+    }
     hr { border-color:#252A3A !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -271,12 +332,32 @@ form_col, preview_col, history_col = st.columns([3, 2, 2], gap="large")
 # ════════════════
 with form_col:
 
-    with st.expander("📎 อัปโหลด Template (.pptx)",
-                     expanded=st.session_state.template_bytes is None):
-        uploaded = st.file_uploader("template", type=["pptx"], label_visibility="collapsed")
+    # ── TEMPLATE SECTION ──────────────────────────────────────
+    with st.expander("📎 Template (.pptx)", expanded=st.session_state.template_bytes is None):
+
+        if st.session_state.template_bytes:
+            st.markdown('<div class="template-status-ok">✅ Template พร้อมใช้งาน (บันทึกไว้ในระบบแล้ว)</div>',
+                        unsafe_allow_html=True)
+            # Download current template
+            st.download_button(
+                label="⬇️ ดาวน์โหลด Template ปัจจุบัน",
+                data=st.session_state.template_bytes,
+                file_name="template.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                use_container_width=True,
+            )
+            st.caption("อัปโหลดไฟล์ใหม่ด้านล่างเพื่อแทนที่ template ปัจจุบัน")
+        else:
+            st.markdown('<div class="template-status-missing">⚠️ ยังไม่มี Template — กรุณาอัปโหลด .pptx</div>',
+                        unsafe_allow_html=True)
+
+        uploaded = st.file_uploader("อัปโหลด template ใหม่", type=["pptx"], label_visibility="collapsed")
         if uploaded:
-            st.session_state.template_bytes = uploaded.read()
-            st.success(f"✅ {uploaded.name}")
+            new_bytes = uploaded.read()
+            st.session_state.template_bytes = new_bytes
+            save_template_to_disk(new_bytes)          # ← persist to disk
+            st.success(f"✅ บันทึก {uploaded.name} เรียบร้อย — จะใช้งาน template นี้จนกว่าจะอัปโหลดใหม่")
+            st.rerun()
 
     st.markdown("---")
     st.markdown('<div class="section-label">🔒 ข้อมูลคงที่</div>', unsafe_allow_html=True)
@@ -305,6 +386,38 @@ with form_col:
 
     st.markdown('<div class="section-label">✏️ กรอกข้อมูล DR</div>', unsafe_allow_html=True)
 
+    # ── EXCHANGE SELECTOR (outside form so short name updates live) ──
+    exchange_options = list(EXCHANGES.keys())
+    saved_exch       = pf.get("_exchange_full", st.session_state.selected_exchange)
+    default_idx      = exchange_options.index(saved_exch) if saved_exch in exchange_options else 0
+
+    col3, col4 = st.columns(2)
+    with col3:
+        exchange_full = st.selectbox(
+            "ตลาดจดทะเบียน *",
+            options=exchange_options,
+            index=default_idx,
+            key="exchange_selectbox",
+        )
+    with col4:
+        # Auto-fill from EXCHANGES map when dropdown changes; user can override
+        auto_short = EXCHANGES.get(exchange_full, "")
+        if st.session_state.get("_last_exchange") != exchange_full:
+            st.session_state["_exchange_short_val"] = auto_short
+            st.session_state["_last_exchange"] = exchange_full
+        # Restore saved short name when editing a history entry
+        if (pf.get("_exchange_full") == exchange_full
+                and pf.get("_exchange_short")
+                and st.session_state.get("_last_exchange_prefill") != exchange_full):
+            st.session_state["_exchange_short_val"] = pf["_exchange_short"]
+            st.session_state["_last_exchange_prefill"] = exchange_full
+        exchange_short_input = st.text_input(
+            "ชื่อย่อตลาด *",
+            value=st.session_state.get("_exchange_short_val", auto_short),
+            key="_exchange_short_val",
+            help="กำหนดอัตโนมัติจากตลาดที่เลือก แต่สามารถแก้ไขได้",
+        )
+
     with st.form("dr_form", clear_on_submit=False):
 
         col1, col2 = st.columns(2)
@@ -320,24 +433,6 @@ with form_col:
         company_name = st.text_input("ชื่อบริษัทอ้างอิง (ภาษาอังกฤษ) *",
                                      value=pf.get("_company_name", ""),
                                      placeholder="เช่น Sunny Optical Technology (Group) Co., Ltd.")
-
-        # ── EXCHANGE DROPDOWN ──
-        exchange_options = list(EXCHANGES.keys())
-        saved_exch       = pf.get("_exchange_full", exchange_options[0])
-        default_idx      = exchange_options.index(saved_exch) if saved_exch in exchange_options else 0
-
-        col3, col4 = st.columns(2)
-        with col3:
-            exchange_full = st.selectbox("ตลาดจดทะเบียน *",
-                                         options=exchange_options,
-                                         index=default_idx)
-        with col4:
-            # Auto-fill short name from dropdown; allow manual override
-            auto_short     = EXCHANGES.get(exchange_full, "")
-            prefill_short  = pf.get("_exchange_short", auto_short) if pf else auto_short
-            exchange_short = st.text_input("ชื่อย่อตลาด *",
-                                           value=prefill_short,
-                                           placeholder="เช่น HKEX")
 
         col5, col6 = st.columns(2)
         with col5:
@@ -367,11 +462,15 @@ with form_col:
         submitted = st.form_submit_button(btn_label, use_container_width=True, type="primary")
 
     if submitted:
+        # Use the exchange selected outside the form; short name may have been overridden by user
+        current_exchange_full  = st.session_state.exchange_selectbox
+        current_exchange_short = st.session_state.get("_exchange_short_val", EXCHANGES.get(current_exchange_full, "")).strip()
+
         errors = []
-        if not ticker.strip():         errors.append("กรุณากรอก Ticker")
-        if not company_name.strip():   errors.append("กรุณากรอกชื่อบริษัท")
-        if not stock_code.strip():     errors.append("กรุณากรอกรหัสหลักทรัพย์")
-        if not exchange_short.strip(): errors.append("กรุณากรอกชื่อย่อตลาด")
+        if not ticker.strip():               errors.append("กรุณากรอก Ticker")
+        if not company_name.strip():         errors.append("กรุณากรอกชื่อบริษัท")
+        if not stock_code.strip():           errors.append("กรุณากรอกรหัสหลักทรัพย์")
+        if not current_exchange_short:       errors.append("กรุณากรอกชื่อย่อตลาด")
 
         if errors:
             for e in errors:
@@ -379,16 +478,18 @@ with form_col:
         else:
             data = build_data(
                 ticker.strip(), company_name.strip(), stock_code.strip(),
-                exchange_full, total_units, ratio,
-                trading_date, filing_url.strip(), exchange_short.strip()
+                current_exchange_full, total_units, ratio,
+                trading_date, filing_url.strip(), current_exchange_short
             )
             if editing:
                 st.session_state.history[st.session_state.edit_index] = data
+                save_history_to_disk(st.session_state.history)
                 st.session_state.edit_index = None
                 st.session_state.prefill    = {}
             else:
                 st.session_state.history.append(data)
 
+            save_history_to_disk(st.session_state.history)
             st.session_state.form_data = data
             st.rerun()
 
@@ -421,10 +522,10 @@ with preview_col:
             ("ชื่อเต็ม (อังกฤษ)", data["full_name_eng"]),
             ("หลักทรัพย์อ้างอิง", data["underlying_stock"]),
             ("ตลาดจดทะเบียน",     data["underlying_exchange"]),
+            ("ชื่อย่อตลาด",       data["foreign_exchange"]),
             ("จำนวนหน่วย",        data["total_units"]),
             ("อัตราอ้างอิง",      data["ratio"]),
             ("วันซื้อขายวันแรก",  data["first_trading_date"]),
-            ("ชื่อย่อตลาด",       data["foreign_exchange"]),
             ("ลิงก์ Filing",      data["filing_url"] or "—"),
         ]
 
@@ -532,6 +633,7 @@ with history_col:
         st.markdown("---")
         if st.button("🗑️ ล้างประวัติทั้งหมด", use_container_width=True):
             st.session_state.history    = []
+            save_history_to_disk([])
             st.session_state.form_data  = None
             st.session_state.edit_index = None
             st.session_state.prefill    = {}
